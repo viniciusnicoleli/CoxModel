@@ -1,0 +1,428 @@
+---
+output:
+  word_document: default
+  html_document: default
+---
+---
+title: "Trabalho de Dados Reais do Banco de Chagas"
+output: html_document
+--
+
+# Pacotes à serem utilizados
+
+Por padrão utilizamos tidyverse por sua incrivel capacidade de facilitar os codings que utilizaremos a seguir:
+também estamos utilizando o pacote corrplot, que nos auxiliará a visualizar a correlação linear das features
+gamlss para a modelagem dos dados, através do modelos paramétricos, porém vamos provar que é possível a utilização de tanto o pacote survival quanto GAMLSS.
+
+Para provar o não plagio, alguns plots estarão sendo permitidos pelo echo=TRUE.
+
+```{r, echo= FALSE}
+library('tidyverse')
+library('ggplot2')
+library('survival')
+library('corrplot')
+library('car')
+library('survminer')
+library('gamlss')
+library('gamlss.cens')
+```
+
+```{r, echo=TRUE}
+#library('tidyverse')
+#library('ggplot2')
+#library('survival')
+#library('corrplot')
+#library('car')
+#library('survminer')
+#library('gamlss')
+#library('gamlss.cens')
+```
+
+
+# Análise Exploratória
+
+Estaremos utilizando esses pacotes para exercermos a atividade de análise do banco de dados.
+
+```{r, echo = TRUE}
+load("/Users/vinic/Documents/BancoChagas.RData")
+db <- BancoChagas
+db <- BancoChagas[BancoChagas$tempo !=0, ]
+dados<-BancoChagas
+dados <- BancoChagas[BancoChagas$tempo !=0, ]
+head(db)
+str(db)
+
+```
+
+
+
+```{r, echo = FALSE}
+# Devemos atualizar as variáveis realizando transformações necessárias aos dados
+
+db$Sexo = as.factor(db$Sexo)
+levels(db$Sexo) = c('Masculino','Feminino')
+
+db$ClasseFuncional = as.factor(db$ClasseFuncional)
+
+db$Sincope = as.factor(db$Sincope)
+levels(db$Sincope) = c('Ausente','Rara','Ocasional',
+                       'Frequente')
+str(db)
+
+```
+
+Acima nos realizamos o que chamamos de manipulação dos dados à favor do uso nas funções.
+
+Como bons estatísticos estamos interessados em gerar um bom insight sobre como está nossa base de dados, por isso seguimos com varias avaliações para entender se é necessário algum tipo de tratamento nos dados
+
+```{r, echo = FALSE}
+#Testando o tamanho de cada coluna
+
+for(i in colnames(db)){
+  print(dim(db[i]))
+}
+```
+
+Abaixo plotamos a distribuição de cada uma das features, para entendermos melhor no caso da V.A se apresentar ser dicotomica, apresentamos um boxplot que analisa a presença de outliers e como está descrito os dados.
+
+Como o interesse gira em torno da V.A: , notamos uma peculiaridade grotesca no que se diz a distribuição da mesma, características como ela se apresentar como uma distribuição exponencial, em que o pressuposto de cruzar ou ser igual a um valor 0, não são violados, seria necessário testes estatísticos como da família de KS, no que se diz respeito a testar distribuições NÃO normais, um teste equivalente seria interessante, mas para o nosso caso se prova não necessário.
+
+```{r, echo = FALSE}
+par(mfrow =c(3,3))
+for(i in colnames(db)){
+  print(colnames(db[i]))
+  x<-db[[i]]
+  print(class(x))
+  if(class(x) != 'factor'){
+    hist(x,main = i)
+  }
+  else{
+    boxplot(x, main= i)
+  }
+}
+```
+
+#Como O decimo autovalor é número negativo, ultilizaremos o valor absoluto, lembrando dessa alteração no momento da interpretação, já que um autovalor negativo indica uma aproximação da origem, no caso, a aproximação de uma pessoa média
+
+
+```{r, echo = FALSE}
+for(i in colnames(db)){
+  na <- db[i] %>% is.na() %>% sum()
+  print(c('Baseado na V.A:',i, 'Contamos essa qtde de NA:', na))
+}
+```
+
+Por fim, checamos a existência de NA's, é muito importante ressaltar que a presença de observações faltantes impactariam na modelagem dos dados e seria necessário um estudo aprofundado sobre o que exatamente realizar com elas, mas nos dados apresentados na parcela retirada indica a presença dos dados completos, podemos seguir com os próximos passos da nossa análise Exploratória.
+
+
+```{r, echo = FALSE}
+# Visualizando a correlação dos dados:
+db_ajus <- db  %>% dplyr::select(-Sexo,-ClasseFuncional,-Sincope)
+par(mfrow=c(1,1))
+corrplot(cor(db_ajus))
+```
+
+E sempre muito importante analisar os dados e as Variáveis Aleatórias se as mesmas apresentam grande correlação entre elas, notávelmente se a presença de multicolinearidade, sendo ela colinearidade linear ou não linear, poderiam ser evidenciadas através desse tipo de teste. Nesse plot, nos estamos investigando a presença de colinearidade Linear, devido ao coeficiente de Pearson ser indicado para esse tipo de análise, evidentemente não possuímos uma correlação tão absurda, mas técnicas como selecionadores de Feature, ou até mesmo a utilização da técnica de VIF, poderia nos auxiliar a analisar e eliminar a multicolinearidade.
+
+# Análise Exploratoria Via EKM
+
+```{r, echo = FALSE}
+ekm <- survfit(Surv(tempo, Obito) ~ 1, data = db)
+ekm
+
+```
+
+
+```{r, echo = FALSE}
+ekm1 <- survfit(Surv(tempo, Obito) ~ Sexo, data = db)
+ekm1
+
+```
+
+
+```{r, echo = FALSE}
+ekm2 <- survfit(Surv(tempo, Obito) ~ ClasseFuncional, data = db)
+ekm2
+
+```
+
+```{r, echo = FALSE}
+ekm3 <- survfit(Surv(tempo, Obito) ~ Sincope, data = db)
+ekm3
+```
+
+
+```{r, echo = FALSE}
+splots <- list()
+
+splots[[1]] <- ggsurvplot(ekm,pval = F, conf.int = FALSE, title="Geral", legend="top") #Devemos deixa o Pvalor em F
+splots[[2]] <- ggsurvplot(ekm1,pval=T, conf.int = FALSE, title="EKM para Sexo", legend="top")
+splots[[3]] <- ggsurvplot(ekm2,pval=T, conf.int = FALSE, title="EKM para ClasseFuncional", legend="top")
+splots[[4]] <- ggsurvplot(ekm3,pval=T, conf.int = FALSE, title="EKM para Sincope", legend="top")
+
+arrange_ggsurvplots(splots, print=TRUE, ncol=2, nrow=2)
+```
+
+Utilizamos o teste de logrank:
+
+*Individuos do sexo feminino e masculino, do quais dicotomizamos anteriormente (as.factor) não tiveram diferença significativa na probabilidade de sobrevivência ao nível de significância 5%, apresentando p-valor igual a 0,54.
+
+*A variável Classe Funcional teve diferença significativa e as curvas mostram que quanto maior o nível desta variável menor é a probabilidade de sobrevivência do paciente, observamos que quanto maior tal argumento menor a chance de sobrevivencia. Atenção para quando a classe atinge o valor 4., como a curva se apresenta com um tempo de falha bem menor. 
+
+*A variável Síncope mostrou-se significativa  a 5%. Podemos concluir que a interpretação é semelhante a da variável anterior: quanto maior o nível de Síncope menor é a probabilidade de sobrevivência do paciente. Nesta variável os níveis são crescentes de acordo com a frequência da síncope cardíaca, ou seja, nível 1 para os pacientes com menor frequência de síncope e nível 4 para os pacientes com maior frequência, mais uma vez damos atenção ao Sincope quando esse é frequente, o que torna a curva de sobrevivencia, um tempo de falha bem menor.
+
+Importante ressaltar que apesar da variável Síncope ter p-valor significativo, houve intersecção entre os intervalos de confiança, mais pra frente ficará ainda mais evidente que a mesma não será mantida nos modelos nem paramétrico nem de Cox.
+
+Acima, nos apresentamos as interpretação das variavéis quando essas não precisam ser manipuladas a fim de incluirmos em grupos com a função cut_intervals, essa nos permite utilizar a realização do EKM.
+```{r, echo = FALSE}
+ekm4 <- survfit(Surv(tempo, Obito) ~ cut_interval(Idade,7), data = db) # Dividimos em 7 para verificar de 10 em 10 anos
+ekm4
+
+```
+
+```{r, echo = FALSE}
+ekm5 <- survfit(Surv(tempo, Obito) ~ cut_interval(FracaoEjecao,3), data = db)
+ekm5
+
+```
+
+```{r, echo = FALSE}
+ekm6 <- survfit(Surv(tempo, Obito) ~ cut_interval(RazaoTEI,3), data = db)
+ekm6
+
+```
+
+```{r, echo = FALSE}
+ekm7 <- survfit(Surv(tempo, Obito) ~ cut_interval(VolAEindexado,3), data = db)
+ekm7
+
+```
+
+```{r, echo = FALSE}
+splots_frac <-list()
+
+splots_frac[[1]] <- ggsurvplot(ekm4, pval = T, conf.int = T, title="Idade do paciente em anos", legend="top")
+splots_frac[[2]] <- ggsurvplot(ekm5, pval = T, conf.int = T, title="Fração de ejeção do ventrículo esquerdo", legend="top")
+splots_frac[[3]] <- ggsurvplot(ekm6, pval = T, conf.int = T, title="Biomarcador de lesão cardíaca", legend="top")
+splots_frac[[4]] <- ggsurvplot(ekm7, pval = T, conf.int = T, title="Volume do átrio esquerdo indexado", legend="top")
+
+arrange_ggsurvplots(splots_frac, print = TRUE, ncol = 2, nrow = 2)
+
+```
+
+Ao nível de significância 5% a variável Idade foi significativa. Para esta variável a categorização foi realizada para 7 grupos, de 10 em 10 anos.
+
+Se divirmos em menores grupos, como apenas dicotomizar até o cut_intervals = 2 ou seja 2 grupos, a variável deixa de ser significativa, depende da causalidade que deseja-se inferir no modelo, optamos por manter os grupos de 10 anos.
+
+A variável RazaoTEI (biomarcador de lesao cardiaca) foi categorizada em 3 grupos o teste de logrank também apontou diferença
+significativa para esta variável.
+
+Por fim, o volume do átrio esquerdo indexado foi dividido em 3 categorias categorias também tiveram diferença significativa.
+
+Observou-se o seguinte: Quando a variável idade é dividida em 7 categorias o p-valor obtido é 0.033, com as curvas indicando que quanto maior a idade do paciente maior é a probabilidade de sobrevivência.
+
+
+# Concluindo a Análise Exploratória:
+
+Observamos que pela seguinte ordem das ações, optamos por manter todas as features exceto por Sexo, já se apresentando não significativo na análise.
+
+Outra indicação que tivemos é que usualmente vamos optar por utilizar o modelo exponencial ja como carro chefe para a modelagem, isso não apresenta conlusão estatística, através da análise visual que fizemos, mas pode indicar mais pra frente que os dados podem se condicionar melhor.
+
+
+# Ajuste dos Modelos Paramétricos
+
+Podemos utilizar tanto o pacote GAMLSS quanto survival.
+
+A diferença entre os dois é que em GAMLSS vamos estar utilizando a função Gamma para modelagem.
+
+Vamos apresentar a modelagem atraves dos dois pacotes, focando apenas no GAMLSS no momento que avaliamos o AIC.
+
+### Modelo Exponencial
+
+```{r, echo = FALSE}
+#Primeiro precisamos criar o Surv:
+
+formula = Surv(tempo,Obito) ~ Idade + 
+  ClasseFuncional + 
+  Sincope + 
+  FracaoEjecao + 
+  RazaoTEI + 
+  VolAEindexado
+  
+# MODELO EXPONENCIAL
+
+db <- BancoChagas[BancoChagas$tempo !=0, ]
+
+m0_expo <- survreg(formula, data = db, dis = "exponential")
+summary(m0_expo)
+```
+
+Acima, podemos observar o fit do modelo exponencial.
+
+### Modelo Lognormal
+
+```{r, echo = FALSE}
+# MODELO LOGNORMAL
+
+m0_log <- survreg(formula, data = db, dis = "lognormal")
+summary(m0_log)
+
+
+```
+
+Acima, podemos observar o fit do modelo lognormal.
+
+### Modelo Weibull
+
+```{r, echo = FALSE}
+# MODELO WEIBULL
+
+m0_wei <- survreg(formula, data = db, dis = "weibull")
+summary(m0_wei)
+```
+
+Acima, podemos observar o fit do modelo de weibull.
+
+```{r, echo = FALSE}
+# Como a variável sicope n foi significativa p/ nenhum modelo, tiramos:
+
+formula = Surv(tempo,Obito) ~ Idade + 
+  ClasseFuncional + 
+  FracaoEjecao + 
+  RazaoTEI + 
+  VolAEindexado
+```
+
+Devido a variável Sincope não é significativa para nenhum dos modelos propostos, dessa forma podemos reescrever a formula para modelagem dos dados, utilizando apenas das features que se comportaram adequadamente.
+
+Para evidenciar, abaixo incluimos os modelos ja com a formula ajustada, o que vamos focar agora é em avaliar o AIC através do pacote GAMLSS.
+
+Estamos realizando essa manobra, mas é totalmente possível de se obter o AIC através da função extractAIC()
+
+```{r, echo = FALSE}
+# Apresentando utilizando o pacote survival:
+
+m0_expo <- survreg(formula, data = db, dis = "exponential")
+m0_log <- survreg(formula, data = db, dis = "lognormal")
+m0_wei <- survreg(formula, data = db, dis = "weibull")
+
+```
+
+Evidenciando abaixo a escolha do modelo Exponencial, mas como chegamos a essa interpretação? Através dos valores de AIC abaixo mostrados, notavelmente nos podemos enxergar que o AIC menor foi o do modelo Exponencial, por isso vamos seguir com a sua escolha para a modelagem dos dados, como opção paramétrica.
+
+```{r, echo = FALSE}
+fit_GG2 <- gamlss(Surv(tempo, Obito) ~ Idade + ClasseFuncional + FracaoEjecao + RazaoTEI + VolAEindexado, data =
+                    db, family = cens(GG),
+                  method = mixed(10, 50))
+
+fit_EXP2 <- update(fit_GG2, family = cens(EXP))
+#Weibull
+fit_WEI2 <- update(fit_GG2, family = cens(WEI))
+#Log Normal
+fit_LOGNO2 <- update(fit_GG2, family = cens(LOGNO))
+
+
+# Testando via AIC:
+
+GAIC(fit_EXP2,fit_LOGNO2,fit_WEI2)
+```
+
+Abaixo podemos analisar os gráficos de resíduos do modelo Exponencial, do que escolhemos devido o AIC.
+
+```{r, echo = FALSE}
+# Em seguida realizamos a visualização do modelo, buscando alguma violação dos pressupostos de Ascombe.
+
+par(mfrow =c(2,2))
+plot(fit_EXP2)
+
+# Por ultimo, após a visualização dos residuos, vamos analisar os termos do modelo
+
+summary(fit_EXP2)
+
+```
+
+O modelo parece acomodar bem as variações dos dados. Contudo, pelos gráficos apresentados, observa-se um desvio em relação à curva teórica esperada, indicando um baixo ajuste do modelo
+
+O modelo com efeito aditivo das variáveis e com todas as variáveis não se mostrou satisfatório para o conjunto de dados em questão ainda que, considerando o ajuste geral do modelo, o mesmo tenha se mostrado estatisticamente significativo.
+
+```{r, echo = FALSE}
+fit_exp2 <- survreg(Surv(tempo , Obito) ~ Idade + ClasseFuncional + FracaoEjecao + RazaoTEI + VolAEindexado,
+                   dist = 'exponential', data = dados)
+
+xb <- m0_expo$coefficients[1] + m0_expo$coefficients[2]*dados$Idade + m0_expo$coefficients[3]*(dados$ClasseFuncional==2) +
+  m0_expo$coefficients[4]*(dados$ClasseFuncional==3) + m0_expo$coefficients[5]*(dados$ClasseFuncional==4) +
+  m0_expo$coefficients[6]* dados$FracaoEjecao + m0_expo$coefficients[7]*dados$RazaoTEI +
+  m0_expo$coefficients[8] * dados$VolAEindexado
+sigma <- fit_exp2$scale
+res <- (log(dados$tempo)-(xb))/sigma # residuos padronizados
+resid <- exp(res) # exponencial dos residuos padronizados
+ekm <- survfit(Surv(resid, dados$Obito) ~ 1)
+resid <- ekm$time
+length(resid)
+sln <- pnorm(-log(resid))
+par(mfrow = c(1, 2))
+plot(ekm$surv, sln, xlab = "S(ei*): Kaplan-Meier", ylab = "S(ei*): Modelo Exponencial",
+     pch = 16, main='Análise Ajuste do model Exponencial',col=blues9)
+abline(coef = c(0, 1))
+plot(ekm, conf.int = F, mark.time = F, xlab = "Resíduos (ei*)",
+     ylab = "Sobrevivência estimada", pch = 16)
+lines(resid, sln, lty = 2)
+legend(1.3, 0.8, lty = c(1, 2), c("Kaplan-Meier", "Exponencial"), cex = 0.8,
+       bty = "n")
+
+```
+
+#### Interpretando o Modelo Exponencial:
+
+Através do Summary: E possível verificar que o modelo apresenta, nas estimativas dos parâmetros, sinais negativos para as variáveis Classe Funcional para os grupos 2, 3, 4 em escalas crescentes em relação à Classe de referência (Classe 1). De maneira que o fato de o paciente estar em classes mais elevadas implica em menor probabilidade de sobrevivência estimada.
+
+Observou-se igualmente que houve elevação do risco na medida em que idade e Fração de Ejeção cresciam. 
+
+Não se observou em relação às covariáveis RazaoTEI e VolAEindexado.
+Demonstraram estar negativamente associadas ao evento, como pode ser visto no summary do modelo.
+
+# Modelo de Cox
+
+```{r, echo = FALSE}
+
+#Ajustando um modelo de Cox
+
+#Ajuste dos termos completos
+
+m0 <- coxph(Surv(tempo, Obito) ~ Sexo + Idade + ClasseFuncional +
+              FracaoEjecao + RazaoTEI + VolAEindexado + Sincope, data = db)
+summary(m0)
+
+m2 <- coxph(Surv(tempo, Obito) ~ Idade + 
+              ClasseFuncional + FracaoEjecao + RazaoTEI + VolAEindexado, data = db)
+summary(m2)
+
+anova(m0,m2)
+```
+
+```{r, echo = FALSE}
+
+# Avaliação do modelo
+
+zph <- cox.zph(m2, transform = "identity")
+zph
+
+# Como a variável ClasseFuncional parece não atender o modelo, vamos retira-la e tentar o modelo de cox novamente
+
+ggcoxzph(zph)
+
+```
+
+```{r, echo = FALSE}
+m5 <- coxph(Surv(tempo, Obito) ~ Idade + 
+              strata(ClasseFuncional) + 
+              FracaoEjecao + 
+              RazaoTEI + 
+              VolAEindexado, data = db)
+summary(m5)
+
+zph2 <- cox.zph(m5,transform="identity")
+zph2
+
+ggcoxzph(zph2)
+```
